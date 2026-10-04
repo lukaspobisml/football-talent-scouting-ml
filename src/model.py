@@ -1,3 +1,4 @@
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
@@ -9,8 +10,10 @@ import re
 
 warnings.filterwarnings('ignore')
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "Data"
+
 def get_league_weights():
-    # Definovanie ligových koeficientov podľa Opta Rank a Market Value
     data = {
         'League': [
             'Polish Ekstraklasa', 'Azerbaijan Premyer Liga', 'Premyer Liga',
@@ -82,7 +85,7 @@ expert_benchmarks = {
     'winger': ['B. Nowak', 'K. Grosicki', 'C. Mena'],
     'central midfielder (8)': ['R. Kapič', 'B. Wolski', 'V. Kochergin'],
     'defensive midfielder (6)': ['I. Zhelizko', 'T. Romanczuk','P. Hellebrand'], 
-    'attacking midfielder': [ 'Ivi López', 'Jesús Imaz', 'Afonso Sousa'],
+    'attacking midfielder': ['Ivi López', 'Jesús Imaz', 'Afonso Sousa'],
     'fullback': ['B. Wdowik', 'Joel Pereira', 'E. Janža'],
     'central defender': ['S. Svarnas', 'A. Milić', 'O. Wójcik']
 }
@@ -99,11 +102,13 @@ def clean_data(df):
     return df
 
 def run_prospect_model():
-    # Načítanie a čistenie Ekstraklasy (Benchmark) a mladých hráčov
-    df_eks_raw = pd.concat([pd.read_csv('Ekstraklasa_24_25.csv', sep=';'), 
-                            pd.read_csv('Ekstraklasa_25_26.csv', sep=';')], ignore_index=True)
+    df_eks_raw = pd.concat([
+        pd.read_csv(DATA_DIR / 'Ekstraklasa_24_25.csv', sep=';'), 
+        pd.read_csv(DATA_DIR / 'Ekstraklasa_25_26.csv', sep=';')
+    ], ignore_index=True)
+    
     df_eks = clean_data(df_eks_raw).sort_values('minutes_played', ascending=False).drop_duplicates('player').reset_index(drop=True)
-    df_young = clean_data(pd.read_csv('Cleaned_young_representative_players.csv', sep=';'))
+    df_young = clean_data(pd.read_csv(DATA_DIR / 'Cleaned_young_representative_players.csv', sep=';'))
     
     league_weights_dict = get_league_weights()
 
@@ -126,14 +131,12 @@ def run_prospect_model():
         
         if d_eks.empty or not found: continue
         
-        # Identifikácia elity pre Random Forest Classifier
         target_names = expert_benchmarks.get(role, [])
         d_eks['is_elite'] = d_eks['player'].apply(lambda x: 1 if any(str(t).lower() in str(x).lower() for t in target_names) else 0)
 
-        # Trénovanie modelu pre extrakciu váh herných metrík
         param_grid = {'n_estimators': [100, 300, 500], 'max_depth': [3, 4, 5], 'min_samples_leaf': [1, 2]}
         rf_base = RandomForestClassifier(class_weight='balanced', random_state=42)
-        cv_folds = StratifiedKFold(n_splits=min(3, d_eks['is_elite'].sum()), shuffle=True, random_state=42)
+        cv_folds = StratifiedKFold(n_splits=min(3, max(1, d_eks['is_elite'].sum())), shuffle=True, random_state=42)
         
         grid_search = GridSearchCV(estimator=rf_base, param_grid=param_grid, cv=cv_folds, scoring='balanced_accuracy', n_jobs=-1)
         grid_search.fit(d_eks[found], d_eks['is_elite'])
@@ -150,7 +153,6 @@ def run_prospect_model():
             d_you_scaled = pd.DataFrame(scaler.transform(d_you[found]), columns=found, index=d_you.index)
             d_you['final_raw'] = 0
             
-            # Výpočet hodnotení v jednotlivých kategóriách (Buckets)
             for b_name, w in obj_weights.items():
                 b_metrics = [m for m in buckets[b_name] if m in found]
                 if b_metrics: 
@@ -158,7 +160,6 @@ def run_prospect_model():
                     d_you['final_raw'] += b_raw * w
                     d_you[f'Radar_{b_name.capitalize()}'] = norm.cdf(b_raw) * 100
                     
-            # Aplikácia ligového koeficientu a Cumulative Distribution Function
             def get_coeff(row_str):
                 clean_target = ' '.join(str(row_str).lower().replace('_', ' ').split())
                 for dict_league, weight in league_weights_dict.items():
@@ -171,7 +172,6 @@ def run_prospect_model():
             adj_perf = d_you['final_raw'] * d_you['l_coeff']
             d_you['Prospect_Rating'] = norm.cdf(adj_perf, loc=0, scale=1.0) * 100
 
-            # Príprava surových a upravených hodnôt pre export
             for m in found:
                 d_you[f'Raw_{m}'] = d_you[m]
                 d_you[f'Adj_{m}'] = d_you[m] * d_you['l_coeff']
@@ -179,7 +179,6 @@ def run_prospect_model():
                 
             all_export_data.append(d_you)
 
-    # Agregácia a filtrovanie finálneho zoznamu
     if all_export_data:
         df_export = pd.concat(all_export_data, ignore_index=True)
         threshold_mapping = {
@@ -194,7 +193,11 @@ def run_prospect_model():
         
         df_filtered = df_export[df_export.apply(lambda r: r['Prospect_Rating'] >= threshold_mapping.get(r['scouting_role'], 100), axis=1)]
         df_final = df_filtered.sort_values('Prospect_Rating', ascending=False).drop_duplicates('player')
-        df_final.to_csv('Prospect_Tableau_Export.csv', index=False, sep=';', decimal='.', float_format='%.3f')
+        
+        # Export do priečinka Data
+        output_file = DATA_DIR / 'Prospect_Tableau_Export.csv'
+        df_final.to_csv(output_file, index=False, sep=';', decimal='.', float_format='%.3f')
+        print(f"✅ Hotovo: {output_file}")
 
 if __name__ == "__main__":
     run_prospect_model()

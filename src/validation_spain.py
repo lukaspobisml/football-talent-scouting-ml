@@ -1,14 +1,16 @@
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_selection import mutual_info_regression
 from scipy.stats import norm
 import warnings
 
 warnings.filterwarnings('ignore')
 
-# 1. KONFIGURÁCIA BUCKETOV (Zostáva zachovaná pre konzistenciu modelu Prospect)
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "Data"
+
 bucket_configs = {
     'forward': {
         'scoring': ['xg_per_90', 'goal_conversion_pct', 'shots_on_target_pct'],
@@ -74,21 +76,17 @@ def assign_role_from_shortcut(pos_str):
     return mapping.get(primary, "other")
 
 def run_spanish_validation_master():
-    # Načítanie dát - predpokladáme súbory za posledné dve sezóny La Ligy
     try:
-        # Možno použiť tvoj formát Spain_La Liga_24-25.csv
-        df_24 = pd.read_csv('Spain_La Liga_24-25.csv', sep=';') 
-        df_25 = pd.read_csv('Spain_La Liga_25-26.csv', sep=';')
+        df_24 = pd.read_csv(DATA_DIR / 'Spain_La Liga_24-25.csv', sep=';') 
+        df_25 = pd.read_csv(DATA_DIR / 'Spain_La Liga_25-26.csv', sep=';')
         df = pd.concat([df_24, df_25], ignore_index=True)
     except Exception as e:
         return print(f"❌ CHYBA NAČÍTANIA ŠPANIELSKYCH DÁT: {e}")
 
     df = clean_data(df)
-    # Odstránenie brankárov a priradenie rolí
     df = df[~df['position'].astype(str).str.contains('GK', na=False)].copy()
     df['scouting_role'] = df['position'].apply(assign_role_from_shortcut)
     
-    # Agregácia na hráča (ak hral v oboch sezónach)
     all_metrics = list(set([m for b in bucket_configs.values() for sub in b.values() for m in sub]))
     pool = [c for c in all_metrics if c in df.columns]
     
@@ -99,34 +97,28 @@ def run_spanish_validation_master():
     }).reset_index()
 
     print("\n" + "="*125)
-    print(f"{'PROSPECT SCOUTING: EXTERNÁ VALIDÁCIA MODELU NA LA LIGE (MIN 1500+ min)':^125}")
+    print(f"{'PROSPECT SCOUTING: EXTERNÁ VALIDÁCIA NA LA LIGE':^125}")
     print("="*125)
 
     for role, buckets in bucket_configs.items():
         metrics_in_role = [m for sublist in buckets.values() for m in sublist if m in df_agg.columns]
-        
-        # Filtrujeme hráčov danej role s dostatočnou minutážou
         d_role = df_agg[(df_agg['scouting_role'] == role) & (df_agg['minutes_played'] >= 1800)].copy()
         
         if len(d_role) < 10: continue
 
-        # 1. Identifikácia lokálnej elity pre učenie váh atribútov
         scaler = StandardScaler()
         d_scaled = pd.DataFrame(scaler.fit_transform(d_role[metrics_in_role]), 
                                 columns=metrics_in_role, index=d_role.index)
         
-        # Predbežné skóre pre určenie benchmarku (Top 15% ligy)
         d_role['temp_perf'] = d_scaled.mean(axis=1)
         threshold = d_role['temp_perf'].quantile(0.85)
         d_role['is_elite'] = (d_role['temp_perf'] >= threshold).astype(int)
 
-        # 2. Trénovanie Prospect AI na rozpoznanie dôležitosti bucketov
         model = RandomForestClassifier(n_estimators=200, max_depth=5, random_state=42)
         model.fit(d_role[metrics_in_role], d_role['is_elite'])
         
         feat_imp = pd.Series(model.feature_importances_, index=metrics_in_role)
         
-        # Prepočet váh pre buckety
         b_weights = {}
         for b_name, m_list in buckets.items():
             valid_m = [m for m in m_list if m in metrics_in_role]
@@ -135,18 +127,15 @@ def run_spanish_validation_master():
         total_w = sum(b_weights.values()) if sum(b_weights.values()) > 0 else 1
         norm_weights = {k: v/total_w for k, v in b_weights.items()}
 
-        # 3. Finálny výpočet Prospect Indexu pre La Ligu
         d_role['final_raw'] = 0
         for b_name, weight in norm_weights.items():
             b_metrics = [m for m in buckets[b_name] if m in metrics_in_role]
             if b_metrics:
                 d_role['final_raw'] += d_scaled[b_metrics].mean(axis=1) * weight
 
-        # CDF Normalizácia na 0-100 (ako v tvojom pôvodnom Prospect modeli)
         sigma = d_role['final_raw'].std() if d_role['final_raw'].std() > 0 else 1.0
         d_role['Prospect_Rating'] = norm.cdf(d_role['final_raw'], loc=0, scale=sigma) * 100
 
-        # Výpis výsledkov
         print(f"\n>>> POZÍCIA: {role.upper()} | Počet testovaných: {len(d_role)}")
         top_10 = d_role.sort_values('Prospect_Rating', ascending=False).head(10)
         print(top_10[['player', 'team', 'Prospect_Rating']].to_string(index=False, float_format="%.1f"))

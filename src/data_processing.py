@@ -1,21 +1,31 @@
+from pathlib import Path
 import pandas as pd
 import numpy as np
 
+# Dynamické určenie koreňového adresára projektu a priečinka Data
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "Data"
+
 def process_scouting_data():
-    # Načítanie surových dát zo všetkých líg
-    data = pd.read_csv('All_Leagues.csv', sep=';', low_memory=False)
+    # 1. Načítanie surových dát
+    input_file = DATA_DIR / "All_Leagues.csv"
+    data = pd.read_csv(input_file, sep=';', low_memory=False)
     
-    # 1. Zabezpečenie štatistickej významnosti (min. 900 minút podľa metodiky pre mladých hráčov)
+    # Zabezpečenie štatistickej významnosti (min. 900 minút)
     representative_data = data[data["Minutes played"] >= 900]
-    representative_data.to_csv('Representative_players.csv', sep=';', index=False)
+    representative_data.to_csv(DATA_DIR / "Representative_players.csv", sep=';', index=False)
 
-    # Následné načítanie dát po manuálnom doplnení chýbajúceho veku z externých zdrojov
-    data_with_age = pd.read_csv('Representative_players_added_age.csv', sep=';', low_memory=False)
+    # Načítanie dát s doplneným vekom (ak existuje, inak fallback na vyfiltrované)
+    added_age_file = DATA_DIR / "Representative_players_added_age.csv"
+    if added_age_file.exists():
+        data_with_age = pd.read_csv(added_age_file, sep=';', low_memory=False)
+    else:
+        data_with_age = representative_data
 
-    # 2. Filtrácia cieľovej vzorky (hráči U23 a mladší)
+    # 2. Filtrácia cieľovej vzorky (U23)
     young_players = data_with_age[data_with_age["Age"] <= 23].copy()
 
-    # 3. Odstránenie pozície brankára a špecifických brankárskych metrík (Redukcia šumu)
+    # 3. Odstránenie pozície brankára a špecifických brankárskych metrík
     gk_cols_to_drop = [
         'Aerial duels per 90', 'Clean sheets', 'Exits per 90', 
         'Conceded goals per 90', 'Shots against per 90', 'Prevented goals', 
@@ -34,17 +44,21 @@ def process_scouting_data():
             young_players[col] = young_players[col].astype(str).str.replace(',', '.')
             young_players[col] = pd.to_numeric(young_players[col], errors='coerce')
 
-    # Nahradenie chýbajúcich hodnôt pri fyzických a ekonomických parametroch nulami
     physical_cols = ['Height', 'Weight', 'Market value']
     for col in physical_cols:
         if col in young_players.columns:
             young_players[col] = young_players[col].replace(np.nan, 0)
 
-    # Štandardizácia názvov stĺpcov pre bezproblémové spracovanie v Pythone
-    young_players.columns = [c.replace(' ', '_').replace(',', '').replace('%', 'pct').replace('/', 'per').replace('.', '') for c in young_players.columns]
+    # Štandardizácia názvov stĺpcov
+    young_players.columns = [
+        c.replace(' ', '_').replace(',', '').replace('%', 'pct').replace('/', 'per').replace('.', '') 
+        for c in young_players.columns
+    ]
     
-    # Export finálneho čistého datasetu
-    young_players.to_csv('Cleaned_young_representative_players.csv', sep=';', index=False)
+    # Export vyčisteného datasetu
+    output_file = DATA_DIR / "Cleaned_young_representative_players.csv"
+    young_players.to_csv(output_file, sep=';', index=False)
+    print(f"✅ Hotovo: {output_file}")
 
 if __name__ == "__main__":
     process_scouting_data()

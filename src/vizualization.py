@@ -1,7 +1,11 @@
+from pathlib import Path
 import pandas as pd
 import warnings
 
 warnings.filterwarnings('ignore')
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "Data"
 
 BUCKET_CONFIGS = {
     'forward': {
@@ -60,15 +64,23 @@ def get_bucket_name(metric_name, player_role):
     return 'Other'
 
 def prepare_tableau_export():
-    try:
-        df = pd.read_csv('Prospect_Tableau_Export.csv', sep=';', decimal='.')
-    except FileNotFoundError:
-        return
+    input_file = DATA_DIR / 'Prospect_Tableau_Export.csv'
+    if not input_file.exists():
+        # Fallback ak existuje pôvodný súbor
+        input_file = DATA_DIR / 'Widzew_Tableau_Export.csv'
+        if not input_file.exists():
+            print(f"❌ Súbor neexistuje: {DATA_DIR / 'Prospect_Tableau_Export.csv'}")
+            return
+
+    df = pd.read_csv(input_file, sep=';', decimal='.')
+
+    # Podpora pre oba stĺpce skóre
+    score_col = 'Prospect_Rating' if 'Prospect_Rating' in df.columns else 'Widzew_Score'
 
     pctl_cols = [c for c in df.columns if c.startswith('Pctl_')]
     base_metrics = [c.replace('Pctl_', '') for c in pctl_cols]
     
-    id_vars = [c for c in ['player', 'team', 'position', 'scouting_role', 'season', 'league', 'competition', 'Prospect_Rating', 'l_coeff'] if c in df.columns]
+    id_vars = [c for c in ['player', 'team', 'position', 'scouting_role', 'season', 'league', 'competition', score_col, 'l_coeff'] if c in df.columns]
     
     rows = []
     
@@ -76,7 +88,6 @@ def prepare_tableau_export():
         l_coeff = row.get('l_coeff', 1)
         player_role = row.get('scouting_role', row.get('position', ''))
         
-        # Fáza 1: Agregácia do funkčných kategórií (Buckets)
         player_buckets = {}
         for metric in base_metrics:
             pctl_val = row.get(f'Pctl_{metric}')
@@ -89,7 +100,6 @@ def prepare_tableau_export():
                     player_buckets[bucket_name]['adj_sum'] += (pctl_val * l_coeff)
                     player_buckets[bucket_name]['count'] += 1
                 
-        # Fáza 2: Transformácia do dlhého formátu (Long format) a tvorba štítkov
         for metric in base_metrics:
             pctl_val = row.get(f'Pctl_{metric}')
             if pd.notna(pctl_val):
@@ -105,12 +115,10 @@ def prepare_tableau_export():
                 str_raw = f"{real_raw:.2f}" if pd.notna(real_raw) else "N/A"
                 str_adj = f"{real_adj:.2f}" if pd.notna(real_adj) else "N/A"
                 
-                # Zápis do kategórií pre Tableau kalkulácie
                 new_row['Bucket_Name'] = bucket_name
                 new_row['Bucket_Score_Raw'] = player_buckets[bucket_name]['raw_sum'] / player_buckets[bucket_name]['count']
                 new_row['Bucket_Score_Adj'] = player_buckets[bucket_name]['adj_sum'] / player_buckets[bucket_name]['count']
                 
-                # Dynamické štítky spájajúce percentily s absolútnymi produkciami
                 new_row['Metric Name'] = clean_name
                 new_row['Metric Name Raw'] = f"{clean_name} ({str_raw})"
                 new_row['Metric Name Adjusted'] = f"{clean_name} ({str_adj})"
@@ -124,11 +132,12 @@ def prepare_tableau_export():
                 
     df_radar = pd.DataFrame(rows)
     
-    # Preusporiadanie stĺpcov pre lepšiu čitateľnosť exportu
     first_cols = id_vars + ['Bucket_Name', 'Metric Name', 'Metric Name Raw', 'Metric Name Adjusted']
     df_radar = df_radar[first_cols + [c for c in df_radar.columns if c not in first_cols]]
 
-    df_radar.to_csv('Prospect_Detailed_Radar_Export.csv', index=False, sep=';', decimal='.', float_format='%.3f')
+    output_file = DATA_DIR / 'Prospect_Detailed_Radar_Export.csv'
+    df_radar.to_csv(output_file, index=False, sep=';', decimal='.', float_format='%.3f')
+    print(f"✅ Hotovo: {output_file}")
 
 if __name__ == "__main__":
     prepare_tableau_export()
