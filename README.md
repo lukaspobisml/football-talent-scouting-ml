@@ -49,7 +49,7 @@ Candidates are visualized through dual-layered radar architectures (**Raw Domest
 * **Pedro Brazão** (Bodrumspor | Attacking Midfielder | Prospect Rating: **84.448**) – Dynamic carrier and transition threat (3.22 progressive runs/90).
 * **Niv Yehoshua** (Maccabi Petah Tikva | Central Midfielder | Prospect Rating: **82.205**) – Deep-lying playmaker with elite line-breaking vision.
 
-> 🔗 **Interactive Tableau Dashboards:** [View Full Radar Portfolio on Tableau Public] https://public.tableau.com/app/profile/luk.p.bi./vizzes
+> 🔗 **Interactive Tableau Dashboards:**  https://public.tableau.com/app/profile/luk.p.bi./vizzes
 
 ---
 
