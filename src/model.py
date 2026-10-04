@@ -113,10 +113,44 @@ def run_prospect_model():
     league_weights_dict = get_league_weights()
 
     def assign_role(pos_str):
-        if pd.isna(pos_str): return "unknown"
-        primary = str(pos_str).replace(',', ' ').split()[0].upper()
-        mapping = {'RW': 'winger', 'LW': 'winger', 'RWF': 'winger', 'LWF': 'winger'}
-        return mapping.get(primary, "other")
+      if pd.isna(pos_str):
+        return "unknown"
+      primary = str(pos_str).replace(",", " ").split()[0].upper()
+      mapping = {
+          # Krídelníci
+          "RW": "winger",
+          "LW": "winger",
+          "RWF": "winger",
+          "LWF": "winger",
+          "RM": "winger",
+          "LM": "winger",
+          # Útočníci
+          "CF": "forward",
+          "ST": "forward",
+          "SS": "forward",
+          # Ofenzívni záložníci
+          "AMF": "attacking midfielder",
+          "LAMF": "attacking midfielder",
+          "RAMF": "attacking midfielder",
+          # Strední záložníci (osmičky)
+          "CMF": "central midfielder (8)",
+          "LCMF": "central midfielder (8)",
+          "RCMF": "central midfielder (8)",
+          # Defenzívni záložníci (šestky)
+          "DMF": "defensive midfielder (6)",
+          "LDMF": "defensive midfielder (6)",
+          "RDMF": "defensive midfielder (6)",
+          # Strední obrancovia
+          "CB": "central defender",
+          "LCB": "central defender",
+          "RCB": "central defender",
+          # Krajní obrancovia
+          "RB": "fullback",
+          "LB": "fullback",
+          "RWB": "fullback",
+          "LWB": "fullback",
+      }
+      return mapping.get(primary, "other")
 
     df_eks['scouting_role'] = df_eks['position'].apply(assign_role)
     df_young['scouting_role'] = df_young['position'].apply(assign_role)
