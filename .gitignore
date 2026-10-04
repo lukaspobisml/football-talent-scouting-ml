@@ -1,0 +1,20 @@
+# Ignorovanie dát a priečinkov s dátami
+Data/
+Materialy/
+Wyscout data/
+Zadanie/
+
+# Ignorovanie súborov diplomovky a dočasných súborov
+*.docx
+*.pdf
+*.csv
+*.xlsx
+*.parquet
+*.txt
+easy_model.py
+
+# Python cache
+__pycache__/
+*.pyc
+.env
+venv/
