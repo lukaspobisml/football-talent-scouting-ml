@@ -12,6 +12,7 @@ Zadanie/
 *.parquet
 *.txt
 easy_model.py
+skuska.py
 
 # Python cache
 __pycache__/
